@@ -36,6 +36,13 @@ try:
 	from urlparse import parse_qs
 except ImportError:
 	from cgi import parse_qs
+# Apparently simplejson is the one we want to import
+try:
+	import simplejson as json
+except ImportError:
+	import json
+
+
 
 std_headers = {
 	'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64; rv:2.0b10) Gecko/20100101 Firefox/4.0b10',
@@ -2563,6 +2570,227 @@ class FacebookIE(InfoExtractor):
 			except UnavailableVideoError, err:
 				self._downloader.trouble(u'\nERROR: unable to download video')
 
+class UdemyIE(InfoExtractor):
+	"""Information Extractor for Udemy"""
+
+	_VALID_URL = r'^(?:https?://)?(?:\w+\.)?udemy.com/lectures/(?P<pagetitle>.*)'
+# 	_LOGIN_URL = 'https://login.facebook.com/login.php?m&next=http%3A%2F%2Fm.facebook.com%2Fhome.php&'
+	_ASSET_URL = 'http://www.udemy.com/asset/export.html?assetId=%s&displayType=json'
+# 	_NETRC_MACHINE = 'facebook'
+# 	_available_formats = ['highqual', 'lowqual']
+# 	_video_extensions = {
+# 		'highqual': 'mp4',
+# 		'lowqual': 'mp4',
+# 	}
+
+	def __init__(self, downloader=None):
+		InfoExtractor.__init__(self, downloader)
+
+	@staticmethod
+	def suitable(url):
+		return (re.match(UdemyIE._VALID_URL, url) is not None)
+
+	def _reporter(self, message):
+		"""Add header and report message."""
+		self._downloader.to_screen(u'[udemy] %s' % message)
+
+# 	def report_login(self):
+# 		"""Report attempt to log in."""
+# 		self._reporter(u'Logging in')
+
+	def report_video_webpage_download(self, vid_page_title):
+		"""Report attempt to download video webpage."""
+		self._reporter(u'Downloading video webpage: %s' % vid_page_title)
+
+	def report_information_extraction(self, vid_page_title):
+		"""Report attempt to extract video information."""
+		self._reporter(u'Extracting video information: %s' % vid_page_title)
+
+	def _get_config(self, video_webpage):
+		""" Get configuration url from page, request and parse video info """
+		mobj = re.search(r'assetId%3D(?P<AssetID>.*?)%26', video_webpage)
+		if mobj is not None:
+			assetID = mobj.group('AssetID')
+		else:
+			self._downloader.trouble(u'ERROR: no video information found')
+			return
+		
+		request = urllib2.Request(self._ASSET_URL % (str(assetID)))
+		try:
+			config = json.load(urllib2.urlopen(request))
+		except (urllib2.URLError, httplib.HTTPException, socket.error), err:
+			self._downloader.trouble(u'ERROR: unable to download video config: %s' % str(err))
+			return
+
+		if config.get('image', None) is not None:
+			config['image'] = urllib2.unquote(config['image'])
+		return config
+
+	def _real_initialize(self):
+		# 1) Login seems to be done via Facebook, not sure how to do it yet
+		pass
+
+# 		if self._downloader is None:
+# 			return
+
+# 		useremail = None
+# 		password = None
+# 		downloader_params = self._downloader.params
+
+# 		# Attempt to use provided username and password or .netrc data
+# 		if downloader_params.get('username', None) is not None:
+# 			useremail = downloader_params['username']
+# 			password = downloader_params['password']
+# 		elif downloader_params.get('usenetrc', False):
+# 			try:
+# 				info = netrc.netrc().authenticators(self._NETRC_MACHINE)
+# 				if info is not None:
+# 					useremail = info[0]
+# 					password = info[2]
+# 				else:
+# 					raise netrc.NetrcParseError('No authenticators for %s' % self._NETRC_MACHINE)
+# 			except (IOError, netrc.NetrcParseError), err:
+# 				self._downloader.to_stderr(u'WARNING: parsing .netrc: %s' % str(err))
+# 				return
+
+# 		if useremail is None:
+# 			return
+
+# 		# Log in
+# 		login_form = {
+# 			'email': useremail,
+# 			'pass': password,
+# 			'login': 'Log+In'
+# 			}
+# 		request = urllib2.Request(self._LOGIN_URL, urllib.urlencode(login_form))
+# 		try:
+# 			self.report_login()
+# 			login_results = urllib2.urlopen(request).read()
+# 			if re.search(r'<form(.*)name="login"(.*)</form>', login_results) is not None:
+# 				self._downloader.to_stderr(u'WARNING: unable to log in: bad username/password, or exceded login rate limit (~3/min). Check credentials or wait.')
+# 				return
+# 		except (urllib2.URLError, httplib.HTTPException, socket.error), err:
+# 			self._downloader.to_stderr(u'WARNING: unable to log in: %s' % str(err))
+# 			return
+
+	def _real_extract(self, url):
+		# 1) Download site
+		# 2) Find section like config: 'http://www.udemy.com/asset/export.html%3FassetId%3D1019%26displayType%3Dxml'
+		# 3) Download json object from http://www.udemy.com/asset/export.html?assetId=1019&displayType=json
+		# 4) JSON object contains everything that's needed: url, title, thumbnail
+
+		mobj = re.match(self._VALID_URL, url)
+		if mobj is None:
+			self._downloader.trouble(u'ERROR: invalid URL: %s' % url)
+			return
+		vid_page_title = mobj.group('pagetitle')
+		print vid_page_title
+
+		# Get video webpage
+		self.report_video_webpage_download(vid_page_title)
+		request = urllib2.Request('http://www.udemy.com/lectures/%s' % vid_page_title)
+		try:
+			page = urllib2.urlopen(request)
+			video_webpage = page.read()
+		except (urllib2.URLError, httplib.HTTPException, socket.error), err:
+			self._downloader.trouble(u'ERROR: unable to download video webpage: %s' % str(err))
+			return
+
+		# start extracting information
+		self.report_information_extraction(vid_page_title)
+
+		# Extract information
+		video_info = self._get_config(video_webpage)
+
+		# title
+		if 'title' not in video_info:
+			self._downloader.trouble(u'ERROR: unable to extract video title')
+			return
+		video_title = video_info['title']
+		video_title = video_title.decode('utf-8')
+		video_title = sanitize_title(video_title)
+
+		# simplified title
+		simple_title = re.sub(ur'(?u)([^%s]+)' % simple_title_chars, ur'_', video_title)
+		simple_title = simple_title.strip(ur'_')
+
+		# thumbnail image
+		if 'image' not in video_info:
+			self._downloader.trouble(u'WARNING: unable to extract video thumbnail')
+			video_thumbnail = ''
+		else:
+			video_thumbnail = video_info['image']
+		print video_thumbnail
+
+		# upload date
+		upload_date = u'NA'
+# 		if 'upload_date' in video_info:
+# 			upload_time = video_info['upload_date']
+# 			timetuple = email.utils.parsedate_tz(upload_time)
+# 			if timetuple is not None:
+# 				try:
+# 					upload_date = time.strftime('%Y%m%d', timetuple[0:9])
+# 				except:
+# 					pass
+
+# 		# description
+# 		video_description = 'No description available.'
+# 		if (self._downloader.params.get('forcedescription', False) and
+# 		    'description' in video_info):
+# 			video_description = video_info['description']
+
+# 		url_map = video_info['video_urls']
+# 		if len(url_map.keys()) > 0:
+# 			# Decide which formats to download
+# 			req_format = self._downloader.params.get('format', None)
+# 			format_limit = self._downloader.params.get('format_limit', None)
+
+# 			if format_limit is not None and format_limit in self._available_formats:
+# 				format_list = self._available_formats[self._available_formats.index(format_limit):]
+# 			else:
+# 				format_list = self._available_formats
+# 			existing_formats = [x for x in format_list if x in url_map]
+# 			if len(existing_formats) == 0:
+# 				self._downloader.trouble(u'ERROR: no known formats available for video')
+# 				return
+# 			if req_format is None:
+# 				video_url_list = [(existing_formats[0], url_map[existing_formats[0]])] # Best quality
+# 			elif req_format == '-1':
+# 				video_url_list = [(f, url_map[f]) for f in existing_formats] # All formats
+# 			else:
+# 				# Specific format
+# 				if req_format not in url_map:
+# 					self._downloader.trouble(u'ERROR: requested format not available')
+# 					return
+# 				video_url_list = [(req_format, url_map[req_format])] # Specific format
+
+		for video_real_url in video_url_list:
+
+			# At this point we have a new video
+			self._downloader.increment_downloads()
+
+			# Extension
+			video_extension = self._video_extensions.get(format_param, 'mp4')
+
+			# Find the video URL in fmt_url_map or conn paramters
+			try:
+				# Process video information
+				self._downloader.process_info({
+					'id':		video_id.decode('utf-8'),
+					'url':		video_real_url.decode('utf-8'),
+					'uploader':	video_uploader.decode('utf-8'),
+					'upload_date':	upload_date,
+					'title':	video_title,
+					'stitle':	simple_title,
+					'ext':		video_extension.decode('utf-8'),
+					'format':	(format_param is None and u'NA' or format_param.decode('utf-8')),
+					'thumbnail':	video_thumbnail.decode('utf-8'),
+					'description':	video_description.decode('utf-8'),
+					'player_url':	None,
+				})
+			except UnavailableVideoError, err:
+				self._downloader.trouble(u'\nERROR: unable to download video')
+
 class PostProcessor(object):
 	"""Post Processor class.
 
@@ -2819,6 +3047,7 @@ if __name__ == '__main__':
 		yahoo_search_ie = YahooSearchIE(yahoo_ie)
 		deposit_files_ie = DepositFilesIE()
 		facebook_ie = FacebookIE()
+		udemy_ie = UdemyIE()
 		generic_ie = GenericIE()
 
 		# File downloader
@@ -2871,6 +3100,7 @@ if __name__ == '__main__':
 		fd.add_info_extractor(yahoo_search_ie)
 		fd.add_info_extractor(deposit_files_ie)
 		fd.add_info_extractor(facebook_ie)
+		fd.add_info_extractor(udemy_ie)
 
 		# This must come last since it's the
 		# fallback if none of the others work
