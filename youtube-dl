@@ -2480,7 +2480,10 @@ class FacebookIE(InfoExtractor):
 			self._downloader.trouble(u'ERROR: unable to extract video title')
 			return
 		video_title = video_info['title']
-		video_title = video_title.decode('utf-8')
+		try:
+			video_title = video_title.decode('utf-8')
+		except:
+			video_title = ""
 		video_title = sanitize_title(video_title)
 
 		# simplified title
@@ -2548,16 +2551,16 @@ class FacebookIE(InfoExtractor):
 			try:
 				# Process video information
 				self._downloader.process_info({
-					'id':		video_id.decode('utf-8'),
-					'url':		video_real_url.decode('utf-8'),
-					'uploader':	video_uploader.decode('utf-8'),
+					'id':		video_id,
+					'url':		video_real_url,
+					'uploader':	video_uploader,
 					'upload_date':	upload_date,
 					'title':	video_title,
 					'stitle':	simple_title,
-					'ext':		video_extension.decode('utf-8'),
+					'ext':		video_extension,
 					'format':	(format_param is None and u'NA' or format_param.decode('utf-8')),
-					'thumbnail':	video_thumbnail.decode('utf-8'),
-					'description':	video_description.decode('utf-8'),
+					'thumbnail':	video_thumbnail,
+					'description':	video_description,
 					'player_url':	None,
 				})
 			except UnavailableVideoError, err:
